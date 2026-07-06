@@ -486,8 +486,17 @@
                     </h2>
                     <p class="text-slate-500 text-sm mb-6">基于 Cloudflare Workers 的主备双活代理调度系统</p>
                     
+                    <p class="text-slate-500 text-sm mb-6">每台 VPS 部署后自动开启 SOCKS5 出口，所有节点汇总为共享代理池，可互相使用。</p>
+                    
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 mb-2">目标 VPS（留空 = 全部）</label>
+                                <select v-model="proxyConfig.ip" class="w-full bg-white/50 border border-white p-3 rounded-2xl font-bold">
+                                    <option value="">全部 VPS</option>
+                                    <option v-for="s in servers" :key="s.ip" :value="s.ip">{{ s.name }} ({{ s.ip }})</option>
+                                </select>
+                            </div>
                             <div>
                                 <label class="block text-xs font-bold text-slate-400 mb-2">目标国家</label>
                                 <input type="text" v-model="proxyConfig.country" maxlength="2" class="w-full bg-white/50 border border-white p-3 rounded-2xl font-bold uppercase" placeholder="JP" />
@@ -499,10 +508,10 @@
                         </div>
                         <div class="space-y-4">
                             <div>
-                                <label class="block text-xs font-bold text-slate-400 mb-2">代理凭证</label>
+                                <label class="block text-xs font-bold text-slate-400 mb-2">代理凭证（Pages 环境变量统一设置）</label>
                                 <div class="bg-slate-900/50 p-3 rounded-2xl">
-                                    <div class="text-xs text-slate-400 mb-1">用户名: <span class="text-indigo-300 font-mono">proxy</span></div>
-                                    <div class="text-xs text-slate-400">密码: <span class="text-amber-300 font-mono">888888</span></div>
+                                    <div class="text-xs text-slate-400 mb-1">用户名: <span class="text-indigo-300 font-mono">PROXY_USER</span></div>
+                                    <div class="text-xs text-slate-400">密码: <span class="text-amber-300 font-mono">PROXY_PASS</span></div>
                                 </div>
                             </div>
                             <div class="flex gap-2">
@@ -512,10 +521,72 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="bg-white/60 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-white shadow-xl shadow-slate-200/40">
-                    <h3 class="text-lg font-bold text-slate-800 mb-4">活跃节点</h3>
-                    <div id="proxy-nodes" class="text-slate-500">暂无节点数据</div>
+                    <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        跨VPS互联（Mesh 出口共享）
+                    </h3>
+                    <p class="text-slate-500 text-sm mb-4">开启后，本机节点流量将通过其它 VPS 的 SOCKS5 出口转发，实现出口IP共享与轮换。每台 VPS 既是提供方也是消费方。</p>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="space-y-4">
+                            <label class="flex items-center gap-2 text-sm font-bold text-slate-600">
+                                <input type="checkbox" v-model="proxyConfig.mesh.enabled" class="w-4 h-4" /> 启用 Mesh 互联
+                            </label>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 mb-2">优先出口国家</label>
+                                <select v-model="proxyConfig.mesh.country" class="w-full bg-white/50 border border-white p-3 rounded-2xl font-bold">
+                                    <option value="ANY">ANY（全部/轮换）</option>
+                                    <option value="JP">JP</option>
+                                    <option value="US">US</option>
+                                    <option value="HK">HK</option>
+                                    <option value="SG">SG</option>
+                                    <option value="TW">TW</option>
+                                    <option value="KR">KR</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 mb-2">转发模式</label>
+                                <select v-model="proxyConfig.mesh.mode" class="w-full bg-white/50 border border-white p-3 rounded-2xl font-bold">
+                                    <option value="all">全部节点（本机所有节点都走对端出口）</option>
+                                    <option value="select">指定节点（下方填写节点ID，逗号分隔）</option>
+                                </select>
+                            </div>
+                            <div v-if="proxyConfig.ip">
+                                <label class="block text-xs font-bold text-slate-400 mb-2">指定出口 VPS（自由选择 SOCKS5 出口）</label>
+                                <select v-model="proxyConfig.mesh.exit" class="w-full bg-white/50 border border-white p-3 rounded-2xl font-bold">
+                                    <option value="ANY">自动轮换（出口池内随机/轮询）</option>
+                                    <option v-for="p in proxyPool.filter(p=>p.ip!==proxyConfig.ip && p.online && p.enabled)" :key="p.ip" :value="p.ip">{{ p.ip }} <template v-if="p.country">[{{ p.country }}]</template></option>
+                                </select>
+                                <p class="text-xs text-slate-400 mt-1" v-if="proxyConfig.mesh.exit !== 'ANY'">本机节点将固定通过 {{ proxyConfig.mesh.exit }} 的 SOCKS5 出口转发。</p>
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <div v-if="proxyConfig.mesh.mode === 'select'">
+                                <label class="block text-xs font-bold text-slate-400 mb-2">指定节点 ID（逗号分隔）</label>
+                                <input type="text" v-model="proxyConfig.mesh.nodes" class="w-full bg-white/50 border border-white p-3 rounded-2xl font-bold" placeholder="id1,id2" />
+                            </div>
+                            <div class="bg-slate-900/50 p-3 rounded-2xl text-xs text-slate-300 leading-relaxed">
+                                当前在线可用对端出口：<span class="text-emerald-400 font-bold">{{ proxyPool.filter(p=>p.online && p.enabled).length }}</span> 台<br/>
+                                每个节点按轮询分配到其中一台，实现出口IP负载均衡。
+                            </div>
+                            <div class="flex gap-2">
+                                <button @click="saveProxyConfig" class="flex-1 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold py-2.5 rounded-xl shadow-lg hover:shadow-emerald-500/50 transition-all">保存 Mesh 配置</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white/60 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-white shadow-xl shadow-slate-200/40">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">共享代理池（所有 VPS 的 SOCKS5 出口）</h3>
+                    <div v-if="proxyPool.length === 0" class="text-slate-400 text-sm text-center py-8">暂无已上报的代理节点，请确认 VPS 上的 Agent 已运行并上报。</div>
+                    <div v-for="p in proxyPool" :key="p.ip" class="bg-purple-50/50 p-4 rounded-2xl border border-purple-100 mb-3 flex justify-between items-center">
+                        <div>
+                            <div class="font-bold text-slate-700">{{ p.ip }} <span v-if="!p.enabled" class="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded ml-2">已停用</span> <span v-if="!p.online" class="text-xs bg-slate-200 text-slate-500 px-2 py-0.5 rounded ml-2">离线</span></div>
+                            <div class="text-xs text-slate-500 mt-1 font-mono">socks5://{{ p.user }}:{{ p.pass }}@{{ p.socks_ip }}:{{ p.port }} <span v-if="p.country" class="ml-2 text-indigo-400">[{{ p.country }}]</span></div>
+                        </div>
+                        <button @click="copyCommand('socks5://' + p.user + ':' + p.pass + '@' + p.socks_ip + ':' + p.port, '代理链接已复制！')" class="text-xs bg-purple-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-purple-700 transition-all">复制</button>
+                    </div>
                 </div>
             </div>
 
@@ -553,7 +624,7 @@
                         <span class="w-2 h-2 rounded-full bg-purple-500"></span>
                         住宅IP代理连接信息
                     </h2>
-                    <p class="text-slate-500 text-sm mb-6">您可以通过以下 SOCKS5 代理出口连接到住宅IP节点</p>
+                    <p class="text-slate-500 text-sm mb-6">以下是所有 VPS 自动汇总的共享 SOCKS5 代理出口，任选一台连接即可。</p>
 
                     <div class="bg-purple-50/70 rounded-2xl p-6 border border-purple-100">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -562,34 +633,34 @@
                                 <div class="text-lg font-bold text-slate-800">SOCKS5</div>
                             </div>
                             <div>
-                                <div class="text-xs text-slate-400 font-bold mb-2">默认凭证</div>
+                                <div class="text-xs text-slate-400 font-bold mb-2">统一凭证</div>
                                 <div class="bg-slate-900/50 p-3 rounded-xl">
-                                    <div class="text-xs text-slate-400 mb-1">用户名: <span class="text-indigo-300 font-mono">proxy</span></div>
-                                    <div class="text-xs text-slate-400">密码: <span class="text-amber-300 font-mono">888888</span></div>
+                                    <div class="text-xs text-slate-400 mb-1">用户名: <span class="text-indigo-300 font-mono">PROXY_USER</span></div>
+                                    <div class="text-xs text-slate-400">密码: <span class="text-amber-300 font-mono">PROXY_PASS</span></div>
                                 </div>
                             </div>
                         </div>
                         <div class="mt-4 text-xs text-slate-500">
-                            <div class="mb-2">连接格式: <code class="bg-slate-800 text-emerald-400 px-2 py-1 rounded font-mono">socks5://proxy:888888@服务器IP:7920</code></div>
-                            <div>提示: 具体可用节点和端口请咨询管理员。</div>
+                            <div class="mb-2">连接格式: <code class="bg-slate-800 text-emerald-400 px-2 py-1 rounded font-mono">socks5://PROXY_USER:PROXY_PASS@VPS_IP:7920</code></div>
+                            <div>提示: 凭证由管理员在 Pages 环境变量中统一设置，每台 VPS 出口 IP 不同。</div>
                         </div>
                     </div>
                 </div>
 
                 <div class="bg-white/60 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-white shadow-xl shadow-slate-200/40">
-                    <h3 class="text-lg font-bold text-slate-800 mb-4">已分配代理节点</h3>
-                    <div v-if="nodes.filter(n => n.protocol === 'Socks5').length === 0" class="text-slate-400 text-sm text-center py-8">
-                        暂无可用代理节点，请联系管理员开通。
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">共享代理池（所有 VPS 出口）</h3>
+                    <div v-if="proxyPool.length === 0" class="text-slate-400 text-sm text-center py-8">
+                        暂无可用代理节点，请联系管理员确认 VPS Agent 已上报。
                     </div>
-                    <div v-for="node in nodes.filter(n => n.protocol === 'Socks5')" :key="node.id" class="bg-purple-50/50 p-4 rounded-2xl border border-purple-100 mb-3">
+                    <div v-for="p in proxyPool" :key="p.ip" class="bg-purple-50/50 p-4 rounded-2xl border border-purple-100 mb-3">
                         <div class="flex justify-between items-center">
                             <div>
-                                <div class="font-bold text-slate-700">{{ getVpsName(node.vps_ip) }}</div>
+                                <div class="font-bold text-slate-700">{{ p.ip }} <span v-if="!p.enabled" class="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded ml-2">已停用</span></div>
                                 <div class="text-xs text-slate-500 mt-1 font-mono">
-                                    socks5://{{ node.uuid }}:{{ node.private_key }}@{{ node.vps_ip }}:{{ node.port }}
+                                    socks5://{{ p.user }}:{{ p.pass }}@{{ p.socks_ip }}:{{ p.port }}
                                 </div>
                             </div>
-                            <button @click="copyCommand('socks5://' + node.uuid + ':' + node.private_key + '@' + node.vps_ip + ':' + node.port, '代理链接已复制！')" class="text-xs bg-purple-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-purple-700 transition-all">复制</button>
+                            <button @click="copyCommand('socks5://' + p.user + ':' + p.pass + '@' + p.socks_ip + ':' + p.port, '代理链接已复制！')" class="text-xs bg-purple-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-purple-700 transition-all">复制</button>
                         </div>
                     </div>
                 </div>
@@ -813,7 +884,7 @@
                 
                 const showWelcomePopup = ref(false);
 
-                watch(activeTab, (val) => localStorage.setItem('monitor_preferred_tab', val));
+                watch(activeTab, (val) => { localStorage.setItem('monitor_preferred_tab', val); if (val === 'proxy' && isLoggedIn.value) loadProxyPool(); });
                 watch(probeView, (val) => localStorage.setItem('monitor_preferred_view', val));
 
                 const hasCustomCssFlag = computed(() => {
@@ -1138,45 +1209,55 @@
                 const deleteProbeNode = async (id) => { if (!confirm("⚠️ 确定要彻底删除该探针记录吗？如果机器还在运行 Agent，之后会自动复活！请确保先在面板的「服务器与节点」中删除此机器。")) return; await fetchApi(`/api/probe/admin/server?id=${id}`, { method: 'DELETE' }); refreshData(); fetchProbeData(); };
 
                 // --- 住宅IP代理控制器方法 ---
-                const proxyConfig = reactive({ country: 'JP', port: 7920 });
+                const proxyConfig = reactive({ ip: '', country: 'JP', port: 7920, mesh: { enabled: false, country: 'ANY', mode: 'all', nodes: '', exit: 'ANY' } });
+                const proxyPool = ref([]);
+
+                const loadProxyPool = async () => {
+                    try {
+                        const res = await fetchApi('/api/proxy/pool');
+                        proxyPool.value = await res.json();
+                    } catch (e) { proxyPool.value = []; }
+                };
 
                 const toggleNodeProxy = async (ip, currentState) => {
                     try {
-                        await fetchApi('/api/proxy/toggle', {
+                        await fetchApi('/api/proxy/config', {
                             method: 'POST',
-                            body: JSON.stringify({ ip, enable: !currentState })
+                            body: JSON.stringify({ ip, enabled: !currentState, port: proxyConfig.port, country: proxyConfig.country, mesh: proxyConfig.mesh })
                         });
                         alert(`✅ 节点 ${ip} 代理已${currentState ? '关闭' : '开启'}！`);
-                        fetchProbeData();
+                        loadProxyPool();
                     } catch (e) {
                         alert('❌ 代理开关切换失败: ' + e.message);
                     }
                 };
 
                 const saveProxyConfig = async () => {
-                    const config = {
-                        "0": proxyConfig.country.toUpperCase(),
-                        "port": parseInt(proxyConfig.port) || 7920,
-                        "switch_trigger": Date.now()
-                    };
+                    const targets = proxyConfig.ip ? [proxyConfig.ip] : (servers.value || []).map(s => s.ip);
+                    if (targets.length === 0) { alert('⚠️ 暂无可下发的 VPS，请先在「服务器与节点」接入机器。'); return; }
                     try {
-                        await fetchApi('/api/proxy/config', {
-                            method: 'POST',
-                            body: JSON.stringify(config)
-                        });
-                        alert('✅ 代理配置已下发！节点将在下次心跳时应用。');
+                        for (const ip of targets) {
+                            await fetchApi('/api/proxy/config', {
+                                method: 'POST',
+                                body: JSON.stringify({ ip, enabled: true, port: parseInt(proxyConfig.port) || 7920, country: proxyConfig.country.toUpperCase(), mesh: proxyConfig.mesh })
+                            });
+                        }
+                        alert(`✅ 代理配置已下发到 ${targets.length} 台 VPS！Agent 下次心跳即生效。`);
+                        loadProxyPool();
                     } catch (e) {
                         alert('❌ 配置下发失败: ' + e.message);
                     }
                 };
 
                 const switchProxyIP = async () => {
+                    if (!proxyConfig.ip) { alert('⚠️ 请先在上方选择一台目标 VPS。'); return; }
                     try {
                         await fetchApi('/api/proxy/switch', {
                             method: 'POST',
-                            body: JSON.stringify({ switch_trigger: Date.now() })
+                            body: JSON.stringify({ ip: proxyConfig.ip })
                         });
-                        alert('✅ 强制更换IP指令已发送！正在拉黑当前IP并重连...');
+                        alert('✅ 强制更换IP指令已发送！（VPS 公网 IP 固定时仅记录切换并触发重新上报）');
+                        loadProxyPool();
                     } catch (e) {
                         alert('❌ 指令发送失败: ' + e.message);
                     }
@@ -1209,7 +1290,7 @@
                     qrModalOpen, qrCodeImage, showQrCode, 
                     showWelcomePopup, closePopup,
                     availableThemes, pingNodes, pullGithubNodes, hasCustomCssFlag,
-                    proxyConfig, toggleNodeProxy, saveProxyConfig, switchProxyIP
+                    proxyConfig, toggleNodeProxy, saveProxyConfig, switchProxyIP, proxyPool, loadProxyPool
                 };
             }
         }).mount('#app');
