@@ -33,6 +33,8 @@ echo " 🚀 KUI Agent 智能安装启动中..."
 echo " 💻 目标系统: ${OS}"
 echo "=========================================="
 
+export CURL_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+
 echo "[1/6] 🧹 正在清理历史残留..."
 if [ "$OS" = "alpine" ]; then
     rc-service kui-agent stop >/dev/null 2>&1
@@ -76,14 +78,16 @@ if ! command -v sing-box >/dev/null 2>&1; then
             aarch64) SB_ARCH="arm64" ;;
             *) echo "不支持的 CPU 架构: $ARCH"; exit 1 ;;
         esac
-        SB_VER=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
-        curl -sLo sing-box.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-${SB_ARCH}.tar.gz"
+        SB_VER=$(curl -s -A "$CURL_USER_AGENT" "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/')
+        [ -z "$SB_VER" ] && SB_VER=$(curl -sL -A "$CURL_USER_AGENT" "https://raw.githubusercontent.com/a62169722/KUI/main/docs/sing-box-version" 2>/dev/null)
+        [ -z "$SB_VER" ] && SB_VER="1.10.0"
+        curl -sLo sing-box.tar.gz -A "$CURL_USER_AGENT" "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-${SB_ARCH}.tar.gz"
         tar -xzf sing-box.tar.gz
         mv sing-box-${SB_VER}-linux-${SB_ARCH}/sing-box /usr/bin/
         chmod +x /usr/bin/sing-box
         rm -rf sing-box.tar.gz sing-box-${SB_VER}-linux-${SB_ARCH}
     else
-        bash <(curl -fsSL https://sing-box.app/deb-install.sh)
+        bash <(curl -fsSL -A "$CURL_USER_AGENT" https://sing-box.app/deb-install.sh)
     fi
 fi
 
@@ -100,7 +104,7 @@ cat > /opt/kui/config.json <<EOF
 EOF
 
 echo "正在拉取最新版 Agent 执行器..."
-curl -sL "https://raw.githubusercontent.com/a62169722/KUI/main/vps/agent.py" -o /opt/kui/agent.py
+curl -sL -A "$CURL_USER_AGENT" "https://raw.githubusercontent.com/a62169722/KUI/main/vps/agent.py" -o /opt/kui/agent.py
 chmod +x /opt/kui/agent.py
 
 echo "[6/6] 🛡️ 智能注册底层守护进程并启动..."
