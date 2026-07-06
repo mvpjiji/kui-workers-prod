@@ -346,11 +346,13 @@
                     <template v-if="role === 'admin'">
                         <button @click="activeTab = 'nodes'" :class="activeTab === 'nodes' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'" class="px-6 md:px-8 py-2.5 rounded-full font-bold transition-all text-sm md:text-base">服务器与节点</button>
                         <button @click="activeTab = 'users'" :class="activeTab === 'users' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'" class="px-6 md:px-8 py-2.5 rounded-full font-bold transition-all text-sm md:text-base">多用户管理</button>
+                        <button @click="activeTab = 'proxy'" :class="activeTab === 'proxy' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'" class="px-6 md:px-8 py-2.5 rounded-full font-bold transition-all text-sm md:text-base">🌐 住宅IP代理</button>
                         <button @click="activeTab = 'settings'" :class="activeTab === 'settings' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'" class="px-6 md:px-8 py-2.5 rounded-full font-bold transition-all text-sm md:text-base">⚙️ 系统设置</button>
                         <button @click="activeTab = 'probe'; probeDetailId = null;" class="px-6 md:px-8 py-2.5 rounded-full font-bold transition-all text-sm md:text-base text-emerald-600 hover:bg-emerald-50 shadow-sm border border-transparent hover:border-emerald-200">🌐 探针全景大盘</button>
                     </template>
                     <template v-if="role === 'user'">
                         <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'" class="px-6 md:px-8 py-2.5 rounded-full font-bold transition-all text-sm md:text-base">我的主页</button>
+                        <button @click="activeTab = 'proxy'" :class="activeTab === 'proxy' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'" class="px-6 md:px-8 py-2.5 rounded-full font-bold transition-all text-sm md:text-base">🌐 住宅IP代理</button>
                         <button @click="activeTab = 'settings'" :class="activeTab === 'settings' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'" class="px-6 md:px-8 py-2.5 rounded-full font-bold transition-all text-sm md:text-base">⚙️ 系统设置</button>
                         <button @click="activeTab = 'probe'; probeDetailId = null;" class="px-6 md:px-8 py-2.5 rounded-full font-bold transition-all text-sm md:text-base text-blue-600 hover:bg-blue-50 shadow-sm border border-transparent hover:border-blue-200">🌐 探针全景大盘</button>
                     </template>
@@ -475,6 +477,48 @@
                 </div>
             </div>
 
+            <!-- 住宅IP代理控制器 -->
+            <div v-if="role === 'admin' && activeTab === 'proxy'" class="space-y-6">
+                <div class="bg-white/60 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-white shadow-xl shadow-slate-200/40">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                        住宅IP代理控制系统
+                    </h2>
+                    <p class="text-slate-500 text-sm mb-6">基于 Cloudflare Workers 的主备双活代理调度系统</p>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 mb-2">目标国家</label>
+                                <input type="text" v-model="proxyConfig.country" maxlength="2" class="w-full bg-white/50 border border-white p-3 rounded-2xl font-bold uppercase" placeholder="JP" />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 mb-2">代理端口</label>
+                                <input type="number" v-model="proxyConfig.port" class="w-full bg-white/50 border border-white p-3 rounded-2xl font-bold" placeholder="7920" />
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-400 mb-2">代理凭证</label>
+                                <div class="bg-slate-900/50 p-3 rounded-2xl">
+                                    <div class="text-xs text-slate-400 mb-1">用户名: <span class="text-indigo-300 font-mono">proxy</span></div>
+                                    <div class="text-xs text-slate-400">密码: <span class="text-amber-300 font-mono">888888</span></div>
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button @click="saveProxyConfig" class="flex-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold py-2.5 rounded-xl shadow-lg hover:shadow-purple-500/50 transition-all">下发配置</button>
+                                <button @click="switchProxyIP" class="flex-1 bg-gradient-to-r from-pink-600 to-rose-600 text-white font-bold py-2.5 rounded-xl shadow-lg hover:shadow-pink-500/50 transition-all">强制更换IP</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-white/60 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-white shadow-xl shadow-slate-200/40">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">活跃节点</h3>
+                    <div id="proxy-nodes" class="text-slate-500">暂无节点数据</div>
+                </div>
+            </div>
+
             <div v-if="role === 'user' && activeTab === 'dashboard'" class="space-y-8">
                 <div class="bg-white/60 backdrop-blur-xl p-10 md:p-16 rounded-[3rem] shadow-2xl border border-white text-center relative overflow-hidden">
                     <div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-lg h-32 bg-indigo-400/20 blur-3xl rounded-full pointer-events-none"></div>
@@ -497,6 +541,55 @@
                         <div v-for="node in nodes" :key="node.id" class="bg-white/70 backdrop-blur-xl p-6 rounded-[2rem] border border-white shadow-lg transition-all hover:-translate-y-1">
                             <div class="font-black text-xl mb-4 text-slate-800">{{ getVpsName(node.vps_ip) }}</div>
                             <div class="flex justify-between items-center"><span class="font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-xl text-xs">{{ node.protocol }}</span><span class="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl">PORT: {{ node.port }}</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 住宅IP代理控制器 - 用户端 -->
+            <div v-if="role === 'user' && activeTab === 'proxy'" class="space-y-6">
+                <div class="bg-white/60 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-white shadow-xl shadow-slate-200/40">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                        住宅IP代理连接信息
+                    </h2>
+                    <p class="text-slate-500 text-sm mb-6">您可以通过以下 SOCKS5 代理出口连接到住宅IP节点</p>
+
+                    <div class="bg-purple-50/70 rounded-2xl p-6 border border-purple-100">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <div class="text-xs text-slate-400 font-bold mb-2">代理协议</div>
+                                <div class="text-lg font-bold text-slate-800">SOCKS5</div>
+                            </div>
+                            <div>
+                                <div class="text-xs text-slate-400 font-bold mb-2">默认凭证</div>
+                                <div class="bg-slate-900/50 p-3 rounded-xl">
+                                    <div class="text-xs text-slate-400 mb-1">用户名: <span class="text-indigo-300 font-mono">proxy</span></div>
+                                    <div class="text-xs text-slate-400">密码: <span class="text-amber-300 font-mono">888888</span></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4 text-xs text-slate-500">
+                            <div class="mb-2">连接格式: <code class="bg-slate-800 text-emerald-400 px-2 py-1 rounded font-mono">socks5://proxy:888888@服务器IP:7920</code></div>
+                            <div>提示: 具体可用节点和端口请咨询管理员。</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white/60 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-white shadow-xl shadow-slate-200/40">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">已分配代理节点</h3>
+                    <div v-if="nodes.filter(n => n.protocol === 'Socks5').length === 0" class="text-slate-400 text-sm text-center py-8">
+                        暂无可用代理节点，请联系管理员开通。
+                    </div>
+                    <div v-for="node in nodes.filter(n => n.protocol === 'Socks5')" :key="node.id" class="bg-purple-50/50 p-4 rounded-2xl border border-purple-100 mb-3">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <div class="font-bold text-slate-700">{{ getVpsName(node.vps_ip) }}</div>
+                                <div class="text-xs text-slate-500 mt-1 font-mono">
+                                    socks5://{{ node.uuid }}:{{ node.private_key }}@{{ node.vps_ip }}:{{ node.port }}
+                                </div>
+                            </div>
+                            <button @click="copyCommand('socks5://' + node.uuid + ':' + node.private_key + '@' + node.vps_ip + ':' + node.port, '代理链接已复制！')" class="text-xs bg-purple-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-purple-700 transition-all">复制</button>
                         </div>
                     </div>
                 </div>
@@ -1044,6 +1137,51 @@
                 const saveProbeEdit = async () => { await fetchApi('/api/probe/admin/server', { method: 'PUT', body: JSON.stringify(editingProbeNode.value) }); probeEditModalOpen.value = false; refreshData(); fetchProbeData(); };
                 const deleteProbeNode = async (id) => { if (!confirm("⚠️ 确定要彻底删除该探针记录吗？如果机器还在运行 Agent，之后会自动复活！请确保先在面板的「服务器与节点」中删除此机器。")) return; await fetchApi(`/api/probe/admin/server?id=${id}`, { method: 'DELETE' }); refreshData(); fetchProbeData(); };
 
+                // --- 住宅IP代理控制器方法 ---
+                const proxyConfig = reactive({ country: 'JP', port: 7920 });
+
+                const toggleNodeProxy = async (ip, currentState) => {
+                    try {
+                        await fetchApi('/api/proxy/toggle', {
+                            method: 'POST',
+                            body: JSON.stringify({ ip, enable: !currentState })
+                        });
+                        alert(`✅ 节点 ${ip} 代理已${currentState ? '关闭' : '开启'}！`);
+                        fetchProbeData();
+                    } catch (e) {
+                        alert('❌ 代理开关切换失败: ' + e.message);
+                    }
+                };
+
+                const saveProxyConfig = async () => {
+                    const config = {
+                        "0": proxyConfig.country.toUpperCase(),
+                        "port": parseInt(proxyConfig.port) || 7920,
+                        "switch_trigger": Date.now()
+                    };
+                    try {
+                        await fetchApi('/api/proxy/config', {
+                            method: 'POST',
+                            body: JSON.stringify(config)
+                        });
+                        alert('✅ 代理配置已下发！节点将在下次心跳时应用。');
+                    } catch (e) {
+                        alert('❌ 配置下发失败: ' + e.message);
+                    }
+                };
+
+                const switchProxyIP = async () => {
+                    try {
+                        await fetchApi('/api/proxy/switch', {
+                            method: 'POST',
+                            body: JSON.stringify({ switch_trigger: Date.now() })
+                        });
+                        alert('✅ 强制更换IP指令已发送！正在拉黑当前IP并重连...');
+                    } catch (e) {
+                        alert('❌ 指令发送失败: ' + e.message);
+                    }
+                };
+
                 let dataTimer = null; let pingTimer = null; let probeTimer = null;
                 const startPolling = () => { 
                     if (!dataTimer) { refreshData(); dataTimer = setInterval(() => { if (isLoggedIn.value && !document.hidden && activeTab.value !== 'probe') refreshData(); }, 2500); }
@@ -1070,7 +1208,8 @@
                     saveProbeSettings, adminProbeServers, probeEditModalOpen, editingProbeNode, openProbeEditModal, saveProbeEdit, deleteProbeNode, currentDomain,
                     qrModalOpen, qrCodeImage, showQrCode, 
                     showWelcomePopup, closePopup,
-                    availableThemes, pingNodes, pullGithubNodes, hasCustomCssFlag
+                    availableThemes, pingNodes, pullGithubNodes, hasCustomCssFlag,
+                    proxyConfig, toggleNodeProxy, saveProxyConfig, switchProxyIP
                 };
             }
         }).mount('#app');
