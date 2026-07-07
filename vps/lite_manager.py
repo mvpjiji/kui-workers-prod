@@ -5,6 +5,8 @@ import proxy_server
 
 API_URL = "https://www.vpngate.net/api/iphone/"
 C2_URL = os.environ.get("C2_URL", "https://YOUR_CONTROLLER_DOMAIN")
+# 控制器 API 前缀：本地 (CF Pages) 控制器为 /api/proxy；独立部署的原版控制器为 /api
+C2_API_PREFIX = os.environ.get("C2_API_PREFIX", "/api/proxy")
 
 WORKSPACE = Path("/opt/proxy_lite")
 CONFIG_DIR = WORKSPACE / "configs"
@@ -76,7 +78,7 @@ def update_config_loop():
     global target_country, last_switch_trigger, PROXY_PORT, tun_main, tun_backup
     while True:
         try:
-            req = urllib.request.Request(f"{C2_URL}/api/config", headers=get_c2_headers())
+            req = urllib.request.Request(f"{C2_URL}{C2_API_PREFIX}/config", headers=get_c2_headers())
             with urllib.request.urlopen(req, timeout=10) as res:
                 data = json.loads(res.read().decode("utf-8"))
                 desired_country = str(data.get("0", "JP")).upper()
@@ -129,7 +131,7 @@ def c2_heartbeat_loop():
         
         payload = json.dumps({"ip": public_ip, "details": details, "logs": get_recent_logs()}).encode('utf-8')
         try:
-            req = urllib.request.Request(f"{C2_URL}/api/report", data=payload, headers=get_c2_headers(), method='POST')
+            req = urllib.request.Request(f"{C2_URL}{C2_API_PREFIX}/report", data=payload, headers=get_c2_headers(), method='POST')
             urllib.request.urlopen(req, timeout=10)
         except Exception as e: pass
         time.sleep(8)
