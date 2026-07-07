@@ -229,6 +229,9 @@ async function handleProbeAPI(request, env, context, pathArray) {
 async function proxyBridge(method, subPath, request, env) {
     const ctrlUrl = env.PROXY_CTRL_URL;
     if (!ctrlUrl) return await proxyLocal(method, subPath, request, env);
+    const currentOrigin = new URL(request.url).origin;
+    const targetOrigin = new URL(ctrlUrl).origin;
+    if (currentOrigin === targetOrigin) return await proxyLocal(method, subPath, request, env);
     const target = ctrlUrl.replace(/\/+$/, '') + '/api/proxy/' + subPath;
     const init = { method, headers: { 'Content-Type': 'application/json', 'Authorization': env.PROXY_CTRL_TOKEN || '' } };
     if (method === 'POST') { try { init.body = await request.clone().text(); } catch (e) {} }
