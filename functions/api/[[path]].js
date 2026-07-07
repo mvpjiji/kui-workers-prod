@@ -232,7 +232,7 @@ async function proxyBridge(method, subPath, request, env) {
     const currentOrigin = new URL(request.url).origin;
     const targetOrigin = new URL(ctrlUrl).origin;
     if (currentOrigin === targetOrigin) return await proxyLocal(method, subPath, request, env);
-    const target = ctrlUrl.replace(/\/+$/, '') + '/api/proxy/' + subPath;
+    const target = ctrlUrl.replace(/\/+$/, '') + '/api/' + subPath;
     const init = { method, headers: { 'Content-Type': 'application/json', 'Authorization': env.PROXY_CTRL_TOKEN || '' } };
     if (method === 'POST') { try { init.body = await request.clone().text(); } catch (e) {} }
     console.log('[proxy-bridge] ->', method, target);
@@ -253,7 +253,7 @@ async function proxyLocal(method, subPath, req, env) {
         if (method === 'GET') {
             try {
                 const { results } = await db.prepare('SELECT value FROM proxy_slot_map WHERE key = ?').bind('slot_map');
-                if (results && results.length > 0) return new Response(results[0].value);
+                if (results && results.length > 0) return new Response(results[0].value, { headers: { 'Content-Type': 'application/json' } });
             } catch (e) { return new Response(JSON.stringify({ error: "GET config failed: " + e.message }), { status: 500 }); }
             return new Response(JSON.stringify({ "0": "JP", "port": 7920 }));
         }
