@@ -59,10 +59,10 @@ def socks5_client(client: socket.socket, first_byte: bytes) -> None:
         methods_count = recv_exact(client, 1)[0]
         methods = recv_exact(client, methods_count)
         
-        if b"\\x02" not in methods:
-            client.sendall(b"\\x05\\xFF") 
+        if b"\x02" not in methods:
+            client.sendall(b"\x05\xFF")
             return
-        client.sendall(b"\\x05\\x02")
+        client.sendall(b"\x05\x02")
         
         auth_req = recv_exact(client, 2)
         if auth_req[0] != 1: return
@@ -72,9 +72,9 @@ def socks5_client(client: socket.socket, first_byte: bytes) -> None:
         upass = recv_exact(client, plen)
         
         if uname != PROXY_USER or upass != PROXY_PASS:
-            client.sendall(b"\\x01\\x01") 
+            client.sendall(b"\x01\x01")
             return
-        client.sendall(b"\\x01\\x00") 
+        client.sendall(b"\x01\x00") 
 
         version, command, _, address_type = recv_exact(client, 4)
         if version != 5 or command != 1: return
@@ -85,7 +85,7 @@ def socks5_client(client: socket.socket, first_byte: bytes) -> None:
         port = int.from_bytes(recv_exact(client, 2), "big")
         
         upstream = create_connection((host, port), timeout=20)
-        client.sendall(b"\\x05\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00")
+        client.sendall(b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00")
         relay(client, upstream)
     except: pass
     finally:
@@ -141,7 +141,7 @@ def proxy_client(client: socket.socket, address: tuple[str, int]) -> None:
     try:
         client.settimeout(30)
         first = recv_exact(client, 1)
-        if first == b"\\x05": socks5_client(client, first)
+        if first == b"\x05": socks5_client(client, first)
         else: http_client(client, first)
     except:
         try: client.close()
