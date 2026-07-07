@@ -1331,21 +1331,27 @@
         async function pcSaveConfig() {
             const val = document.getElementById(`slot-cfg-0`).value.toUpperCase().trim() || 'JP';
             const port = parseInt(document.getElementById(`slot-port`).value) || 7920;
-            await fetch('/api/proxy/config', {
-                method: 'POST',
-                body: JSON.stringify({ "0": val, "port": port })
-            });
-            alert('🚀 策略及端口已云端同步！Agent 将在下一心跳周期应用。');
+            try {
+                const res = await fetch('/api/proxy/config', {
+                    method: 'POST',
+                    body: JSON.stringify({ "0": val, "port": port })
+                });
+                if (!res.ok) { const err = await res.text(); throw new Error(err || res.status); }
+                alert('🚀 策略及端口已云端同步！Agent 将在下一心跳周期应用。');
+            } catch (e) { alert('❌ 下发失败: ' + e.message); }
         }
 
         async function pcSwitchIP() {
             const val = document.getElementById(`slot-cfg-0`).value.toUpperCase().trim() || 'JP';
             const port = parseInt(document.getElementById(`slot-port`).value) || 7920;
-            await fetch('/api/proxy/config', {
-                method: 'POST',
-                body: JSON.stringify({ "0": val, "port": port, "switch_trigger": Date.now() })
-            });
-            alert('🔄 重拨指令已下发！VPS 将清退当前通道池重新并发建连...');
+            try {
+                const res = await fetch('/api/proxy/config', {
+                    method: 'POST',
+                    body: JSON.stringify({ "0": val, "port": port, "switch_trigger": Date.now() })
+                });
+                if (!res.ok) { const err = await res.text(); throw new Error(err || res.status); }
+                alert('🔄 重拨指令已下发！VPS 将清退当前通道池重新并发建连...');
+            } catch (e) { alert('❌ 下发失败: ' + e.message); }
         }
 
         async function pcLoadNativeIpScore(ip) {
