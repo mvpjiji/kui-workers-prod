@@ -18,7 +18,7 @@ async function ensureDbSchema(db) {
         `CREATE TABLE IF NOT EXISTS sys_config (key TEXT PRIMARY KEY, val TEXT, ts INTEGER)`,
         `CREATE TABLE IF NOT EXISTS proxy_ctrl_servers (ip TEXT PRIMARY KEY, details TEXT, last_seen INTEGER)`,
         `CREATE TABLE IF NOT EXISTS server_logs (ip TEXT PRIMARY KEY, logs TEXT, updated_at INTEGER)`,
-        `CREATE TABLE IF NOT EXISTS global_config (key TEXT PRIMARY KEY, value TEXT)`
+        `CREATE TABLE IF NOT EXISTS proxy_slot_map (key TEXT PRIMARY KEY, value TEXT)`
     ];
     for (let query of initQueries) { try { await db.prepare(query).run(); } catch (e) {} }
 
@@ -251,16 +251,20 @@ async function proxyLocal(method, subPath, req, env) {
 
     if (subPath === 'config') {
         if (method === 'GET') {
-            const { results } = await db.prepare('SELECT value FROM global_config WHERE key = ?').bind('slot_map');
-            if (results && results.length > 0) return new Response(results[0].value);
+            try {
+                const { results } = await db.prepare('SELECT value FROM proxy_slot_map WHERE key = ?').bind('slot_map');
+                if (results && results.length > 0) return new Response(results[0].value);
+            } catch (e) { return new Response(JSON.stringify({ error: "GET config failed: " + e.message }), { status: 500 }); }
             return new Response(JSON.stringify({ "0": "JP", "port": 7920 }));
         }
         if (method === 'POST') {
-            const data = await req.json();
-            const sanitized = { "0": data["0"] || "JP", "port": parseInt(data.port) || 7920 };
-            if (data.switch_trigger) sanitized.switch_trigger = data.switch_trigger;
-            await db.prepare(`INSERT INTO global_config (key, value) VALUES ('slot_map', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).bind(JSON.stringify(sanitized)).run();
-            return new Response("OK");
+            try {
+                const data = await req.json();
+                const sanitized = { "0": data["0"] || "JP", "port": parseInt(data.port) || 7920 };
+                if (data.switch_trigger) sanitized.switch_trigger = data.switch_trigger;
+                const r = await db.prepare(`INSERT INTO proxy_slot_map (key, value) VALUES ('slot_map', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).bind(JSON.stringify(sanitized)).run();
+                return new Response("OK: " + JSON.stringify(r));
+            } catch (e) { return new Response("CONFIG_WRITE_ERR: " + e.message, { status: 500 }); }
         }
     }
 
