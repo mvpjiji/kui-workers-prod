@@ -1331,7 +1331,7 @@
         async function pcSaveConfig() {
             const val = document.getElementById(`slot-cfg-0`).value.toUpperCase().trim() || 'JP';
             const port = parseInt(document.getElementById(`slot-port`).value) || 7920;
-            await fetch('/api/config', {
+            await fetch('/api/proxy/config', {
                 method: 'POST',
                 body: JSON.stringify({ "0": val, "port": port })
             });
@@ -1341,7 +1341,7 @@
         async function pcSwitchIP() {
             const val = document.getElementById(`slot-cfg-0`).value.toUpperCase().trim() || 'JP';
             const port = parseInt(document.getElementById(`slot-port`).value) || 7920;
-            await fetch('/api/config', {
+            await fetch('/api/proxy/config', {
                 method: 'POST',
                 body: JSON.stringify({ "0": val, "port": port, "switch_trigger": Date.now() })
             });
