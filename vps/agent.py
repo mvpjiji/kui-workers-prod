@@ -360,7 +360,7 @@ def build_singbox_config(nodes, proxy_cfg=None, peers=None, mesh=None, socks5_ou
                     "certificate_path": cert_path,
                     "key_path": key_path
                 },
-                "congestion": "bbr",
+                "congestion_control": "bbr",
                 "udp_idle_timeout": "30s"
             })
         elif proto == "Trojan": singbox_config["inbounds"].append({"type": "trojan", "tag": in_tag, "listen": "::", "listen_port": port, "users": [{"password": node["private_key"]}], "tls": {"enabled": True, "server_name": sni, "certificate_path": cert_path, "key_path": key_path}})
