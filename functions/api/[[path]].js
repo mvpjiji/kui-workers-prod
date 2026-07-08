@@ -43,6 +43,7 @@ async function ensureDbSchema(db) {
     try { await db.prepare("SELECT disk FROM servers LIMIT 1").first(); } catch (e) { const newCols = ['disk INTEGER DEFAULT 0', 'load TEXT DEFAULT ""', 'uptime TEXT DEFAULT ""', 'net_in_speed INTEGER DEFAULT 0', 'net_out_speed INTEGER DEFAULT 0', 'tcp_conn INTEGER DEFAULT 0', 'udp_conn INTEGER DEFAULT 0']; for (let col of newCols) { try { await db.prepare(`ALTER TABLE servers ADD COLUMN ${col}`).run(); } catch(err){} } }
     try { await db.prepare("SELECT sub_token FROM users LIMIT 1").first(); } catch (e) { try { await db.prepare("ALTER TABLE users ADD COLUMN sub_token TEXT").run(); } catch(err){} }
     try { await db.prepare("SELECT reset_day FROM probe_servers LIMIT 1").first(); } catch (e) { try { await db.prepare("ALTER TABLE probe_servers ADD COLUMN reset_day TEXT DEFAULT '1'").run(); } catch(e){} }
+    try { await db.prepare("SELECT socks5_enable FROM servers LIMIT 1").first(); } catch (e) { const s5Cols = ['socks5_enable INTEGER DEFAULT 0', 'socks5_addr TEXT DEFAULT ""', 'socks5_port INTEGER DEFAULT 0', 'socks5_user TEXT DEFAULT ""', 'socks5_pass TEXT DEFAULT ""']; for (let col of s5Cols) { try { await db.prepare(`ALTER TABLE servers ADD COLUMN ${col}`).run(); } catch(err){} } }
 
     // 初始化云端测速数据
     const checkNodes = await db.prepare("SELECT value FROM probe_settings WHERE key = 'cached_nodes_data'").first();
@@ -530,7 +531,12 @@ export async function onRequest(context) {
             const t = await db.prepare("SELECT value FROM probe_settings WHERE key='proxy_toggle_' || ?").bind(ip).first();
             if (t && t.value) { try { proxyCfg.toggle = JSON.parse(t.value); } catch (ex) {} }
         } catch (ex) {}
-        return Response.json({ success: true, configs: machineNodes, proxy: proxyCfg });
+        let socks5_outbound = { enabled: false };
+        try {
+            const s = await db.prepare("SELECT socks5_enable, socks5_addr, socks5_port, socks5_user, socks5_pass FROM servers WHERE ip = ?").bind(ip).first();
+            if (s && s.socks5_enable) socks5_outbound = { enabled: true, addr: s.socks5_addr, port: s.socks5_port, user: s.socks5_user, pass: s.socks5_pass };
+        } catch (ex) {}
+        return Response.json({ success: true, configs: machineNodes, proxy: proxyCfg, socks5_outbound: socks5_outbound });
     }
 
     // 🌟 住宅IP代理：优先外部控制器 (PROXY_CTRL_URL)；未配置时回落到本地 D1 实现
@@ -714,7 +720,8 @@ rules:
         }
         
         if (action === "vps" && isAdmin) {
-            if (method === "POST") { const { ip, name } = await request.json(); await db.prepare("INSERT OR IGNORE INTO servers (ip, name, alert_sent) VALUES (?, ?, 0)").bind(ip, name).run(); return Response.json({ success: true }); }
+            if (method === "POST") { const { ip, name, socks5_enable, socks5_addr, socks5_port, socks5_user, socks5_pass } = await request.json(); await db.prepare("INSERT OR IGNORE INTO servers (ip, name, alert_sent, socks5_enable, socks5_addr, socks5_port, socks5_user, socks5_pass) VALUES (?, ?, 0, ?, ?, ?, ?, ?)").bind(ip, name, socks5_enable||0, socks5_addr||'', socks5_port||0, socks5_user||'', socks5_pass||'').run(); return Response.json({ success: true }); }
+            if (method === "PUT") { const data = await request.json(); const ip = data.ip; if (!ip) return Response.json({ error: "IP required" }, { status: 400 }); const updates = []; const params = []; if (data.socks5_enable !== undefined) { updates.push("socks5_enable = ?"); params.push(data.socks5_enable ? 1 : 0); } if (data.socks5_addr !== undefined) { updates.push("socks5_addr = ?"); params.push(data.socks5_addr); } if (data.socks5_port !== undefined) { updates.push("socks5_port = ?"); params.push(parseInt(data.socks5_port) || 0); } if (data.socks5_user !== undefined) { updates.push("socks5_user = ?"); params.push(data.socks5_user); } if (data.socks5_pass !== undefined) { updates.push("socks5_pass = ?"); params.push(data.socks5_pass); } if (updates.length > 0) { params.push(ip); await db.prepare(`UPDATE servers SET ${updates.join(', ')} WHERE ip = ?`).bind(...params).run(); } return Response.json({ success: true }); }
             if (method === "DELETE") { 
                 const ip = new URL(request.url).searchParams.get("ip"); 
                 await db.batch([ db.prepare("DELETE FROM nodes WHERE vps_ip = ?").bind(ip), db.prepare("DELETE FROM traffic_stats WHERE ip = ?").bind(ip), db.prepare("DELETE FROM servers WHERE ip = ?").bind(ip), db.prepare("DELETE FROM probe_servers WHERE id = ?").bind(ip) ]); 
