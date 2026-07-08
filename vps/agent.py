@@ -406,14 +406,17 @@ def build_singbox_config(nodes, proxy_cfg=None, peers=None, mesh=None, socks5_ou
             proxy_port, proxy_user, proxy_pass = PROXY_PORT, PROXY_USER, PROXY_PASS
         if proxy_enabled:
             port_in_use = False
-            try:
-                test = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                test.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                result = test.connect_ex(("127.0.0.1", int(proxy_port)))
-                test.close()
-                port_in_use = (result == 0)
-            except Exception:
-                pass
+            for family, addr in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+                try:
+                    test = socket.socket(family, socket.SOCK_STREAM)
+                    test.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    result = test.connect_ex((addr, int(proxy_port)))
+                    test.close()
+                    if result == 0:
+                        port_in_use = True
+                        break
+                except Exception:
+                    pass
             if not port_in_use:
                 try:
                     singbox_config["inbounds"].append({
