@@ -279,16 +279,33 @@ def connect_node(tun: Tunnel, node: dict):
 
             is_residential = True
             try:
-                # 兼容 testisp.info/api/check 的新解析逻辑
                 req_url = f"https://testisp.info/api/check?ip={egress_ip}"
                 check_req = urllib.request.Request(req_url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}, method="GET")
                 with urllib.request.urlopen(check_req, timeout=10) as check_res:
                     data = json.loads(check_res.read().decode("utf-8"))
-                    isp_flag = str(data.get("isp", {}).get("flag", "")).lower()
+                    print(f"[*] {tun.name} testisp.info 报告 {egress_ip}: {data.get('isp',{})} / native={data.get('geo',{}).get('is_native','?')}", flush=True)
+                    isp = data.get("isp", {})
+                    geo = data.get("geo", {})
+                    isp_flag = str(isp.get("flag", "")).lower()
+                    isp_type = str(isp.get("type", "")).lower()
+                    isp_warn = str(isp.get("warning", "")).lower()
+                    is_native = geo.get("is_native", False)
                     
+                    # 综合判断：仅凭 isp.flag == "hosting" 不够可靠
+                    # 真机房判定：flag=hosting 且 type 不含 isp/broadband/dsl/cable 且 is_native=False
                     if isp_flag == "hosting":
-                        is_residential = False
-            except Exception as e: pass
+                        residential_indicators = [
+                            "isp" in isp_type,
+                            "broadband" in isp_type,
+                            "dsl" in isp_type,
+                            "cable" in isp_type,
+                            is_native is True,
+                            "hosting" not in isp_warn and "datacenter" not in isp_warn
+                        ]
+                        if not any(residential_indicators):
+                            is_residential = False
+            except Exception as e:
+                print(f"[*] {tun.name} testisp.info 查询失败: {e}", flush=True)
             
             if not is_residential:
                 print(f"[-] {tun.name} 节点出口 ({egress_ip}) 检测为机房 IP，残忍抛弃！", flush=True)
