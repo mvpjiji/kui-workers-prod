@@ -108,6 +108,17 @@ def update_config_loop():
             desired_country = str(data.get("0") or data.get("country") or "JP").upper()
             switch_trigger = int(data.get("switch_trigger", 0))
             new_port = int(data.get("port", 7920))
+            # 同步代理凭证到 proxy_server 模块（让其实时生效，无需重启进程）
+            try:
+                pc = data.get("proxy") or {}
+                if isinstance(pc, dict):
+                    pu = str(pc.get("user", "")) or os.environ.get("PROXY_USER", "proxy")
+                    pp = str(pc.get("pass", "")) or os.environ.get("PROXY_PASS", "888888")
+                    os.environ["PROXY_USER"] = pu
+                    os.environ["PROXY_PASS"] = pp
+                    proxy_server.set_credentials(pu, pp)
+            except Exception:
+                pass
             print(f"[cfg] 解析: country={desired_country}, port={new_port}, trigger={switch_trigger}, current_country={target_country}", flush=True)
                 
             if new_port != PROXY_PORT:
