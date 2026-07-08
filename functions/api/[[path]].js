@@ -858,7 +858,7 @@ export async function onRequest(context) {
                 const remark = encodeURIComponent(node.name || `TP_${node.protocol}_${node.port}`);
                 let link = "";
                 switch (node.protocol) {
-                    case "VMess": link = node.extra && node.extra.startsWith('vmess://') ? node.extra + '#' + remark : ''; break;
+                    case "VMess": link = (node.extra && node.extra.startsWith('vmess://')) ? node.extra : ''; break;
                     case "VLESS": {
                         if (node.flow && (node.public_key || node.flow.includes('rprx'))) {
                             link = `vless://${node.uuid}@${node.address}:${node.port}?encryption=none&flow=${node.flow}&security=reality&sni=${node.sni}&fp=chrome&pbk=${node.public_key||''}&sid=${node.short_id||''}&type=${node.network||'tcp'}${node.path ? '&path=' + encodeURIComponent(node.path) : ''}#${remark}`;
