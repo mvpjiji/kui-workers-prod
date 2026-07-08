@@ -444,11 +444,25 @@
                                     </div>
                                     <label class="flex items-center gap-1 text-sm"><input type="checkbox" :checked="vps.socks5_enable == 1" @change="updateVpsSocks5(vps.ip, 'socks5_enable', $event.target.checked ? 1 : 0); vps.socks5_enable = $event.target.checked ? 1 : 0" class="w-4 h-4 accent-indigo-600"> 启用</label>
                                 </div>
-                                <div v-if="vps.socks5_enable == 1" class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    <div><label class="block text-[10px] font-bold text-slate-400 mb-1">地址</label><input :value="vps.socks5_addr" @change="updateVpsSocks5(vps.ip, 'socks5_addr', $event.target.value)" placeholder="SOCKS5 地址" class="w-full bg-white border p-2.5 rounded-xl text-sm outline-none"></div>
-                                    <div><label class="block text-[10px] font-bold text-slate-400 mb-1">端口</label><input :value="vps.socks5_port" @change="updateVpsSocks5(vps.ip, 'socks5_port', parseInt($event.target.value)||0)" type="number" placeholder="1080" class="w-full bg-white border p-2.5 rounded-xl text-sm outline-none"></div>
-                                    <div><label class="block text-[10px] font-bold text-slate-400 mb-1">用户名</label><input :value="vps.socks5_user" @change="updateVpsSocks5(vps.ip, 'socks5_user', $event.target.value)" placeholder="可选" class="w-full bg-white border p-2.5 rounded-xl text-sm outline-none"></div>
-                                    <div><label class="block text-[10px] font-bold text-slate-400 mb-1">密码</label><input :value="vps.socks5_pass" @change="updateVpsSocks5(vps.ip, 'socks5_pass', $event.target.value)" type="password" placeholder="可选" class="w-full bg-white border p-2.5 rounded-xl text-sm outline-none"></div>
+                                <div v-if="vps.socks5_enable == 1" class="space-y-3">
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                        <div><label class="block text-[10px] font-bold text-slate-400 mb-1">地址</label><input :value="vps.socks5_addr" @change="updateVpsSocks5(vps.ip, 'socks5_addr', $event.target.value)" placeholder="SOCKS5 地址" class="w-full bg-white border p-2.5 rounded-xl text-sm outline-none"></div>
+                                        <div><label class="block text-[10px] font-bold text-slate-400 mb-1">端口</label><input :value="vps.socks5_port" @change="updateVpsSocks5(vps.ip, 'socks5_port', parseInt($event.target.value)||0)" type="number" placeholder="1080" class="w-full bg-white border p-2.5 rounded-xl text-sm outline-none"></div>
+                                        <div><label class="block text-[10px] font-bold text-slate-400 mb-1">用户名</label><input :value="vps.socks5_user" @change="updateVpsSocks5(vps.ip, 'socks5_user', $event.target.value)" placeholder="可选" class="w-full bg-white border p-2.5 rounded-xl text-sm outline-none"></div>
+                                        <div><label class="block text-[10px] font-bold text-slate-400 mb-1">密码</label><input :value="vps.socks5_pass" @change="updateVpsSocks5(vps.ip, 'socks5_pass', $event.target.value)" type="password" placeholder="可选" class="w-full bg-white border p-2.5 rounded-xl text-sm outline-none"></div>
+                                    </div>
+                                    <div class="flex items-center gap-3 pt-1">
+                                        <label class="flex items-center gap-2 text-xs font-bold text-slate-500"><input type="radio" :value="'global'" :checked="(vps.socks5_mode||'global')=='global'" @change="updateVpsSocks5(vps.ip, 'socks5_mode', 'global'); vps.socks5_mode='global'" class="accent-indigo-600"> 全局出站</label>
+                                        <label class="flex items-center gap-2 text-xs font-bold text-slate-500"><input type="radio" :value="'selective'" :checked="(vps.socks5_mode||'global')=='selective'" @change="updateVpsSocks5(vps.ip, 'socks5_mode', 'selective'); vps.socks5_mode='selective'" class="accent-indigo-600"> 局部代理</label>
+                                    </div>
+                                    <div v-if="(vps.socks5_mode||'global')=='selective'" class="bg-white/60 border border-slate-200 p-3 rounded-xl">
+                                        <div class="text-xs font-bold text-slate-500 mb-2">选择需走 SOCKS5 代理的分类：</div>
+                                        <div class="flex flex-wrap gap-3">
+                                            <label v-for="cat in socks5Categories" :key="cat.key" class="flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-pointer">
+                                                <input type="checkbox" :checked="socks5CatSelected(vps, cat.key)" @change="toggleSocks5Cat(vps, cat.key, $event.target.checked)" class="w-3.5 h-3.5 accent-indigo-600"> {{ cat.label }}
+                                            </label>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1177,6 +1191,9 @@
                 const addVps = async () => { if(!newVps.value.ip || !newVps.value.name) return alert('请输入名称和IP'); deployOsMap[newVps.value.ip] = newVps.value.os; saveOsMap(); await fetchApi('/api/vps', { method: 'POST', body: JSON.stringify({ ip: newVps.value.ip, name: newVps.value.name }) }); newVps.value = { name: '', ip: '', os: 'debian' }; refreshData(); fetchProbeData();};
                 const deleteVps = async (ip) => { if(confirm('🧨 确定移除该机器？该机器相关的探针数据、节点数据将被完全清空！')) { await fetchApi(`/api/vps?ip=${ip}`, { method: 'DELETE' }); refreshData(); fetchProbeData();} };
                 const updateVpsSocks5 = async (ip, field, value) => { await fetchApi('/api/vps', { method: 'PUT', body: JSON.stringify({ ip, [field]: value }) }); };
+                const socks5Categories = Object.freeze([{ key: 'youtube', label: '🌐 YouTube' }, { key: 'ai', label: '🤖 AI' }, { key: 'google', label: '🔍 谷歌搜索' }, { key: 'streaming', label: '🎬 流媒体' }]);
+                const socks5CatSelected = (vps, cat) => { try { const d = JSON.parse(vps.socks5_domains || '{}'); return Array.isArray(d.categories) && d.categories.includes(cat); } catch(e) { return false; } };
+                const toggleSocks5Cat = (vps, cat, on) => { let d = { categories: [] }; try { d = JSON.parse(vps.socks5_domains || '{}'); if (!Array.isArray(d.categories)) d.categories = []; } catch(e) { d = { categories: [] }; } if (on) { if (!d.categories.includes(cat)) d.categories.push(cat); } else { d.categories = d.categories.filter(c => c !== cat); } const raw = JSON.stringify(d); updateVpsSocks5(vps.ip, 'socks5_domains', raw); vps.socks5_domains = raw; };
 
                 const addNode = async (ip) => {
                     const p = newNodeParams[ip]; if(!p.port) return alert('请填写端口!');
@@ -1308,7 +1325,7 @@
                 return { 
                     isLoggedIn, showLoginModal, loginUser, password, currentUser, role, activeTab, 
                     servers, nodes, users, newVps, newNodeParams, newUser, 
-                    login, logout, refreshData, addUser, toggleUser, deleteUser, resetUserTraffic, addVps, deleteVps, updateVpsSocks5, addNode, deleteNode, toggleNode, resetTraffic, 
+                    login, logout, refreshData, addUser, toggleUser, deleteUser, resetUserTraffic, addVps, deleteVps, updateVpsSocks5, socks5Categories, socks5CatSelected, toggleSocks5Cat, addNode, deleteNode, toggleNode, resetTraffic, 
                     getNodesByIp, getVpsName, formatBytes, formatDate, getExpireText, getTrafficPercent, getPingColor, isOnline, generateCmd, generateSubLink, copyCommand, 
                     globalOnline, globalTraffic, globalSpeedIn, globalSpeedOut, deployOsMap, saveOsMap, siteTitle, siteTitleInput, saveSiteTitle, userNewPassword, updateUserPassword, resetMySubLink, generateUUIDForNewUser, batchStartPort, batchUser, deployAllProtocols,
                     probeSys, publicProbeServers, filteredProbeServers, probeView, probeDetailId, probeDetail, setProbeView, openProbeDetail, probeGlobalOnline, probeGlobalOffline, probeGlobalSpeedIn, probeGlobalSpeedOut, probeGlobalNetRx, probeGlobalNetTx, filteredProbeGroups, probeCountryStats, currentFilter,
