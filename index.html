@@ -959,7 +959,7 @@
                 const servers = ref([]); const nodes = ref([]); const users = ref([]);
                 const realtimeUrl = ref('');
                 const realtimeConnected = ref(false);
-                let realtimeSocket = null; let realtimeReconnectTimer = null; let realtimeFallbackTimer = null; let realtimeConnectTimer = null; let realtimePingTimer = null;
+                let realtimeSocket = null; let realtimeReconnectTimer = null; let realtimeFallbackTimer = null; let realtimeConnectTimer = null; let realtimePingTimer = null; let realtimeGeneration = 0; let realtimeDisconnectedAt = 0;
                 const newVps = ref({ name: '', ip: '', os: 'debian' }); const newNodeParams = reactive({}); const newUser = reactive({ username: '', password: '', traffic_limit_gb: '', expire_date: '' });
                 const mySubToken = ref(''); const siteTitle = ref(''); const siteTitleInput = ref(''); const userNewPassword = ref('');
                 const batchStartPort = reactive({}); const batchUser = reactive({}); 
@@ -1135,12 +1135,12 @@
                             localStorage.setItem('kui_auth_key', authKey.value); localStorage.setItem('kui_user', currentUser.value); localStorage.setItem('kui_role', role.value);
                             isLoggedIn.value = true; showLoginModal.value = false; password.value = ''; 
                             activeTab.value = role.value === 'admin' ? 'nodes' : 'dashboard';
-                            startPolling(); fetchProbeData();
+                            startPolling(); fetchProbeData(); queueMicrotask(connectRealtime);
                         } else alert('⚠️ 账户名或密码错误');
                     } catch (e) { alert('登录异常'); }
                 };
                 
-                const logout = () => { localStorage.removeItem('kui_auth_key'); localStorage.removeItem('kui_user'); localStorage.removeItem('kui_role'); isLoggedIn.value = false; currentUser.value = ''; authKey.value = ''; activeTab.value = 'probe'; stopPolling(); startProbePolling();};
+                const logout = () => { localStorage.removeItem('kui_auth_key'); localStorage.removeItem('kui_user'); localStorage.removeItem('kui_role'); isLoggedIn.value = false; currentUser.value = ''; authKey.value = ''; activeTab.value = 'probe'; realtimeGeneration++; realtimeDisconnectedAt = 0; clearTimeout(realtimeFallbackTimer); clearTimeout(realtimeReconnectTimer); clearTimeout(realtimeConnectTimer); clearInterval(realtimePingTimer); const socket = realtimeSocket; realtimeSocket = null; socket?.close(); realtimeConnected.value = false; window.kuiRealtimeConnected = false; stopPolling(); startProbePolling();};
                 const sendUiPing = async () => { try { await fetchApi('/api/ui_ping', { method: 'POST' }); } catch(e) {} };
 
                 let mapInitialized = false; let myMap = null; let markersLayer = null; let geoJsonLayer = null; let worldGeoJson = null; let currentMapDataStr = "";
@@ -1490,33 +1490,43 @@
                 };
                 const scheduleRealtimeFallback = () => {
                     clearTimeout(realtimeFallbackTimer);
-                    realtimeFallbackTimer = setTimeout(() => { if (!realtimeConnected.value && isLoggedIn.value) { stopPolling(); startPolling(); startProbePolling(); if (activeTab.value === 'proxy') pcInitProxy(); } }, 30000);
+                    if (!realtimeDisconnectedAt) realtimeDisconnectedAt = Date.now();
+                    const remaining = Math.max(0, 30000 - (Date.now() - realtimeDisconnectedAt));
+                    realtimeFallbackTimer = setTimeout(() => { if (!document.hidden && !realtimeConnected.value && isLoggedIn.value) { stopPolling(); startPolling(); startProbePolling(); if (activeTab.value === 'proxy') pcInitProxy(); } }, remaining);
                 };
                 const connectRealtime = async () => {
                     if (!isLoggedIn.value || role.value !== 'admin' || !realtimeUrl.value || document.hidden) return;
                     if (realtimeSocket && [WebSocket.OPEN, WebSocket.CONNECTING].includes(realtimeSocket.readyState)) return;
+                    const generation = ++realtimeGeneration;
+                    scheduleRealtimeFallback();
                     try {
                         const authHeaders = await window.kuiAdminAuthHeader();
-                        const ticketRes = await fetch(`${realtimeUrl.value}/dashboard/ticket`, { method: 'POST', headers: authHeaders });
+                        const ticketController = new AbortController();
+                        const ticketTimeout = setTimeout(() => ticketController.abort(), 30000);
+                        const ticketRes = await fetch(`${realtimeUrl.value}/dashboard/ticket`, { method: 'POST', headers: authHeaders, signal: ticketController.signal }).finally(() => clearTimeout(ticketTimeout));
                         if (!ticketRes.ok) throw new Error(`ticket ${ticketRes.status}`);
                         const { ticket } = await ticketRes.json();
+                        if (generation !== realtimeGeneration || !isLoggedIn.value || role.value !== 'admin' || document.hidden) return;
                         const wsUrl = realtimeUrl.value.replace(/^http/, 'ws') + `/dashboard/ws?ticket=${encodeURIComponent(ticket)}`;
-                        realtimeSocket = new WebSocket(wsUrl);
+                        const socket = new WebSocket(wsUrl);
+                        realtimeSocket = socket;
                         clearTimeout(realtimeConnectTimer);
-                        realtimeConnectTimer = setTimeout(() => { if (realtimeSocket?.readyState === WebSocket.CONNECTING) realtimeSocket.close(); }, 30000);
-                        realtimeSocket.onopen = () => { clearTimeout(realtimeConnectTimer); realtimeConnected.value = true; window.kuiRealtimeConnected = true; clearTimeout(realtimeFallbackTimer); stopPolling(); stopProbePolling(); pcStopProxy(); dataTimer = setInterval(refreshData, 300000); probeTimer = setInterval(fetchProbeData, 300000); pingTimer = setInterval(sendUiPing, 300000); clearInterval(realtimePingTimer); realtimePingTimer = setInterval(() => { if (realtimeSocket?.readyState === WebSocket.OPEN) realtimeSocket.send('ping'); servers.value.forEach(server => { if (server.realtime_state === 'online' && Date.now() - server.last_report > 120000) { server.realtime_state = 'stale'; server.last_report = 0; } }); publicProbeServers.value.forEach(server => { if (server.last_updated && Date.now() - server.last_updated > 120000) server.last_updated = 0; }); if (activeTab.value === 'proxy') pcFetchNodes(); }, 30000); };
-                        realtimeSocket.onmessage = event => { try { const message = JSON.parse(event.data); if (message.type === 'snapshot') (message.data || []).forEach(applyRealtimeSnapshot); else if (message.type === 'patch') applyRealtimeSnapshot(message.data); } catch(e) {} };
-                        realtimeSocket.onclose = () => { clearTimeout(realtimeConnectTimer); clearInterval(realtimePingTimer); realtimeConnected.value = false; window.kuiRealtimeConnected = false; realtimeSocket = null; scheduleRealtimeFallback(); clearTimeout(realtimeReconnectTimer); realtimeReconnectTimer = setTimeout(connectRealtime, 5000); };
-                        realtimeSocket.onerror = () => realtimeSocket?.close();
-                    } catch(e) { scheduleRealtimeFallback(); clearTimeout(realtimeReconnectTimer); realtimeReconnectTimer = setTimeout(connectRealtime, 10000); }
+                        realtimeConnectTimer = setTimeout(() => { if (realtimeSocket === socket && socket.readyState === WebSocket.CONNECTING) socket.close(); }, 30000);
+                        socket.onopen = () => { if (realtimeSocket !== socket || generation !== realtimeGeneration) return socket.close(); clearTimeout(realtimeConnectTimer); realtimeDisconnectedAt = 0; realtimeConnected.value = true; window.kuiRealtimeConnected = true; clearTimeout(realtimeFallbackTimer); stopPolling(); stopProbePolling(); pcStopProxy(); clearInterval(realtimePingTimer); realtimePingTimer = setInterval(() => { if (realtimeSocket?.readyState === WebSocket.OPEN) realtimeSocket.send('ping'); servers.value.forEach(server => { if (server.realtime_state === 'online' && Date.now() - server.last_report > 120000) { server.realtime_state = 'stale'; server.last_report = 0; } }); publicProbeServers.value.forEach(server => { if (server.last_updated && Date.now() - server.last_updated > 120000) server.last_updated = 0; }); if (activeTab.value === 'proxy') pcFetchNodes(); }, 30000); };
+                        socket.onmessage = event => { if (realtimeSocket !== socket) return; try { const message = JSON.parse(event.data); if (message.type === 'snapshot') (message.data || []).forEach(applyRealtimeSnapshot); else if (message.type === 'patch') applyRealtimeSnapshot(message.data); } catch(e) {} };
+                        socket.onclose = () => { if (realtimeSocket !== socket) return; clearTimeout(realtimeConnectTimer); clearInterval(realtimePingTimer); realtimeConnected.value = false; window.kuiRealtimeConnected = false; realtimeSocket = null; if (isLoggedIn.value && !document.hidden) { scheduleRealtimeFallback(); clearTimeout(realtimeReconnectTimer); realtimeReconnectTimer = setTimeout(connectRealtime, 5000); } };
+                        socket.onerror = () => socket.close();
+                    } catch(e) { if (generation !== realtimeGeneration) return; scheduleRealtimeFallback(); clearTimeout(realtimeReconnectTimer); realtimeReconnectTimer = setTimeout(connectRealtime, 10000); }
                 };
                 const notifyRealtime = async (ip = '') => { if (!realtimeUrl.value || role.value !== 'admin') return; try { const headers = await window.kuiAdminAuthHeader(); await fetch(`${realtimeUrl.value}/notify`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(ip ? { ip } : {}) }); } catch(e) {} };
                 window.kuiNotifyRealtime = notifyRealtime;
                 const startPolling = () => { 
-                    if (!dataTimer) { refreshData(); dataTimer = setInterval(() => { if (isLoggedIn.value && !document.hidden && activeTab.value !== 'probe') refreshData(); }, realtimeConnected.value ? 300000 : pollingSettings.dataInterval); }
+                    if (realtimeConnected.value) return;
+                    if (!dataTimer) { refreshData(); dataTimer = setInterval(() => { if (isLoggedIn.value && !document.hidden && activeTab.value !== 'probe') refreshData(); }, pollingSettings.dataInterval); }
                     if (!pingTimer) { sendUiPing(); pingTimer = setInterval(() => { if (isLoggedIn.value && !document.hidden) sendUiPing(); }, pollingSettings.pingInterval); }
                 };
                 const startProbePolling = () => { 
+                    if (realtimeConnected.value && isLoggedIn.value && role.value === 'admin') return;
                     if (!probeTimer) { fetchProbeData(); probeTimer = setInterval(() => { if (!document.hidden && (!isLoggedIn.value || activeTab.value === 'probe')) fetchProbeData(); }, pollingSettings.probeInterval); } 
                 }
                 const stopProbePolling = () => { if (probeTimer) { clearInterval(probeTimer); probeTimer = null; } };
@@ -1526,14 +1536,16 @@
                     pollingSettings.probeInterval = Math.max(30000, Number(pollingSettings.probeInterval) || 30000);
                     pollingSettings.pingInterval = Math.max(60000, Number(pollingSettings.pingInterval) || 60000);
                     localStorage.setItem('kui_polling_settings', JSON.stringify(pollingSettings));
-                    if (isLoggedIn.value) { stopPolling(); startPolling(); }
-                    stopProbePolling(); startProbePolling();
+                    if (!realtimeConnected.value) {
+                        if (isLoggedIn.value) { stopPolling(); startPolling(); }
+                        stopProbePolling(); startProbePolling();
+                    }
                 };
 
                 onMounted(() => {
                     fetchProbeData(); startProbePolling();
                     if (authKey.value && currentUser.value) { isLoggedIn.value = true; if (role.value !== 'admin' && activeTab.value === 'proxy') activeTab.value = 'dashboard'; startPolling(); if (activeTab.value === 'proxy') setTimeout(pcInitProxy, 0); }
-                    document.addEventListener('visibilitychange', () => { if (document.hidden) { stopPolling(); stopProbePolling(); clearInterval(realtimePingTimer); clearTimeout(realtimeFallbackTimer); realtimeSocket?.close(); } else { if (isLoggedIn.value) { startPolling(); connectRealtime(); } startProbePolling(); } });
+                    document.addEventListener('visibilitychange', () => { if (document.hidden) { realtimeGeneration++; realtimeDisconnectedAt = 0; stopPolling(); stopProbePolling(); clearInterval(realtimePingTimer); clearTimeout(realtimeFallbackTimer); clearTimeout(realtimeReconnectTimer); const socket = realtimeSocket; realtimeSocket = null; socket?.close(); realtimeConnected.value = false; window.kuiRealtimeConnected = false; } else if (isLoggedIn.value && role.value === 'admin' && realtimeUrl.value) { connectRealtime(); scheduleRealtimeFallback(); } else { if (isLoggedIn.value) startPolling(); startProbePolling(); } });
                 });
 
                 return { 
@@ -1729,7 +1741,7 @@
             try {
                 let servers = [];
                 const realtimeSnapshots = Object.values(window.kuiRealtimeProxySnapshots || {});
-                if (!window.kuiRealtimeConnected || !realtimeSnapshots.length || Date.now() - lastPcHttpFetch >= 300000) {
+                if (!window.kuiRealtimeConnected) {
                     const auth = await getPcAuthHeader();
                     const res = await fetch(`/api/proxy/nodes?t=${Date.now()}`, { headers: { 'Authorization': auth } });
                     pcHttpServers = await res.json(); lastPcHttpFetch = Date.now();
@@ -1879,7 +1891,7 @@
             pcFetchCountries();
             pcLoadConfig();
             pcFetchNodes();
-            pcInterval = setInterval(pcFetchNodes, 15000);
+            if (!window.kuiRealtimeConnected) pcInterval = setInterval(pcFetchNodes, 15000);
         }
 
         function pcStopProxy() {

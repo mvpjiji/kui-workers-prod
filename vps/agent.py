@@ -141,6 +141,7 @@ config_wakeup = threading.Event()
 heartbeat_wakeup = threading.Event()
 realtime_channel = None
 last_http_report = 0
+REALTIME_HTTP_INTERVAL = 900
 
 # 🌟 增加全局 Ping 状态缓存锁，防止在非测速轮次上传 '0' 导致前端图表归零
 last_pings = {"ct": "0", "cu": "0", "cm": "0", "bd": "0"}
@@ -148,6 +149,7 @@ dynamic_ping = {"ct": None, "cu": None, "cm": None}
 pending_report_id = None
 pending_report_bytes = None
 pending_node_traffic = None
+pending_report_payload = None
 
 # --- 缓存静态信息 ---
 cached_os = cached_arch = cached_cpu_info = cached_virt = None
@@ -736,7 +738,7 @@ def build_singbox_config(nodes, proxy_cfg=None, peers=None, mesh=None, socks5_ou
         subprocess.run(["systemctl", "start", "sing-box"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
 
 def report_status(current_nodes, argo_urls, force_http=False, allow_http=True):
-    global last_reported_bytes, global_interval, fast_mode, dynamic_ping, pending_report_id, pending_report_bytes, pending_node_traffic, last_http_report
+    global last_reported_bytes, global_interval, fast_mode, dynamic_ping, pending_report_id, pending_report_bytes, pending_node_traffic, pending_report_payload, last_http_report
     status = get_system_status(global_interval)
     status["ip"] = VPS_IP
     status["argo_urls"] = argo_urls
@@ -758,25 +760,32 @@ def report_status(current_nodes, argo_urls, force_http=False, allow_http=True):
         pending_report_id = f"{VPS_IP}:{time.time_ns()}"
     # Keep accumulating against the last successful HTTP baseline. WebSocket
     # updates are display-only and must not advance billable traffic counters.
-    pending_report_bytes = {k: v for k, v in pending_bytes.items() if k in current_ids}
-    pending_node_traffic = deltas
+    if pending_report_payload is None:
+        pending_report_bytes = {k: v for k, v in pending_bytes.items() if k in current_ids}
+        pending_node_traffic = deltas
     status["node_traffic"] = pending_node_traffic
     status["report_id"] = pending_report_id
 
     websocket_sent = realtime_channel.send(status) if realtime_channel and realtime_channel.connected else False
-    if websocket_sent and not force_http and time.time() - last_http_report < 300:
+    if websocket_sent and not force_http and time.time() - last_http_report < REALTIME_HTTP_INTERVAL:
         return True
+    if realtime_channel and realtime_channel.enabled and not websocket_sent and time.time() - realtime_channel.last_disconnected < 30:
+        return False
     if not websocket_sent and not allow_http:
         return False
 
     try: 
-        req = urllib.request.Request(REPORT_URL, data=json.dumps(status).encode(), headers=HEADERS)
+        if pending_report_payload is None:
+            pending_report_payload = dict(status)
+            pending_report_payload["node_traffic"] = list(pending_node_traffic or [])
+        req = urllib.request.Request(REPORT_URL, data=json.dumps(pending_report_payload).encode(), headers=HEADERS)
         with urllib.request.urlopen(req, timeout=5) as response:
             resp_data = json.loads(response.read().decode('utf-8'))
         last_reported_bytes = pending_report_bytes
         pending_report_id = None
         pending_report_bytes = None
         pending_node_traffic = None
+        pending_report_payload = None
         last_http_report = time.time()
         if resp_data and "interval" in resp_data:
             global_interval = min(max(1, int(resp_data["interval"])), 3600)
@@ -943,13 +952,13 @@ if __name__ == "__main__":
             started = time.monotonic()
             try:
                 websocket_online = bool(realtime_channel and realtime_channel.connected)
-                fallback_ready = not realtime_channel or not realtime_channel.enabled or (realtime_channel.ever_connected and time.time() - realtime_channel.last_disconnected >= 30) or (not realtime_channel.ever_connected and time.time() - realtime_channel.started_at >= 30)
+                fallback_ready = not realtime_channel or not realtime_channel.enabled or time.time() - (realtime_channel.last_disconnected or realtime_channel.started_at) >= 30
                 report_status(list(heartbeat_state["nodes"]), list(heartbeat_state["argo_urls"]), force_http=not websocket_online, allow_http=websocket_online or fallback_ready)
             except Exception as error:
                 print(f"[agent] heartbeat loop error: {error}", flush=True)
             elapsed = time.monotonic() - started
             if realtime_channel and realtime_channel.connected:
-                heartbeat_interval = 15
+                heartbeat_interval = 30
             elif realtime_channel and realtime_channel.enabled and not realtime_channel.ever_connected and time.time() - realtime_channel.started_at < 30:
                 heartbeat_interval = max(1, 30 - (time.time() - realtime_channel.started_at))
             elif realtime_channel and realtime_channel.ever_connected and time.time() - realtime_channel.last_disconnected < 30:
@@ -962,6 +971,13 @@ if __name__ == "__main__":
     time.sleep(2)
     threading.Thread(target=heartbeat_loop, name="kui-heartbeat", daemon=True).start()
     while True:
+        config_wakeup.clear()
+        while realtime_channel and realtime_channel.enabled and not realtime_channel.connected:
+            grace_remaining = 30 - (time.time() - (realtime_channel.last_disconnected or realtime_channel.started_at))
+            if grace_remaining <= 0:
+                break
+            config_wakeup.wait(timeout=grace_remaining)
+            config_wakeup.clear()
         loop_started = time.monotonic()
         try:
             check_for_update()
@@ -973,6 +989,5 @@ if __name__ == "__main__":
         elapsed = time.monotonic() - loop_started
         if elapsed > 20:
             print(f"[agent] slow loop completed in {elapsed:.1f}s", flush=True)
-        config_interval = 300 if realtime_channel and realtime_channel.connected else (30 if fast_mode else 300)
+        config_interval = REALTIME_HTTP_INTERVAL if realtime_channel and realtime_channel.connected else (30 if fast_mode else 300)
         config_wakeup.wait(timeout=max(1, config_interval - min(config_interval - 1, elapsed)))
-        config_wakeup.clear()

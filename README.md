@@ -166,7 +166,7 @@ DEV 修复情况
 
 虽然 Worker 代码对管理员账号保留了兼容默认值，但生产部署必须显式设置管理员账号和密码。`PROXY_USER`、`PROXY_PASS` 没有可用默认值；缺少任意一个时，住宅代理 API 返回 `503`，SOCKS5 监听器拒绝连接。
 
-`REALTIME_URL` 未配置时系统继续使用原有 HTTP 模式。配置后，Core Agent、住宅代理和管理员浏览器优先使用 WebSocket；连接中断满 30 秒后自动启用 HTTP fallback，恢复连接后自动停止高频 HTTP 请求。
+`REALTIME_URL` 未配置时系统继续使用原有 HTTP 模式。配置后，Core Agent、住宅代理和管理员浏览器优先使用 WebSocket；在线状态每 30 秒通过 WebSocket 上报，关键连接和住宅通道变化立即推送。WebSocket 健康时仅每 15 分钟执行一次 HTTP 状态持久化与配置权威校验；连接中断满 30 秒后自动恢复状态 90 秒、配置 300 秒的 HTTP fallback，WebSocket 恢复后自动停止高频 HTTP 请求。
 
 ### 部署 Realtime Worker
 

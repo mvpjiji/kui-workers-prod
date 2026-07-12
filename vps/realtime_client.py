@@ -24,6 +24,7 @@ class RealtimeChannel:
         self.connected = False
         self.last_connected = 0
         self.last_disconnected = 0
+        self.outage_started = 0
         self.ever_connected = False
         self.last_message = 0
         self.started_at = 0
@@ -70,6 +71,12 @@ class RealtimeChannel:
                 return True
             except Exception:
                 self.connected = False
+                if not self.outage_started:
+                    self.outage_started = time.time()
+                self.last_disconnected = self.outage_started
+                if self.on_message:
+                    try: self.on_message({"type": "transport.disconnected"})
+                    except Exception: pass
                 return False
 
     def _websocket_url(self):
@@ -92,6 +99,7 @@ class RealtimeChannel:
                 self._socket.settimeout(45)
                 self.connected = True
                 self.last_connected = time.time()
+                self.outage_started = 0
                 self.ever_connected = True
                 if self.on_message:
                     try: self.on_message({"type": "transport.connected"})
@@ -116,7 +124,9 @@ class RealtimeChannel:
                 pass
             finally:
                 self.connected = False
-                self.last_disconnected = time.time()
+                if not self.outage_started:
+                    self.outage_started = time.time()
+                self.last_disconnected = self.outage_started
                 if self.on_message:
                     try: self.on_message({"type": "transport.disconnected"})
                     except Exception: pass

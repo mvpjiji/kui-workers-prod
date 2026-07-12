@@ -44,6 +44,7 @@ realtime_channel = None
 config_wakeup = threading.Event()
 heartbeat_wakeup = threading.Event()
 last_http_report = 0
+REALTIME_HTTP_INTERVAL = 900
 
 state_lock = threading.Lock()
 dead_ips = set()
@@ -181,11 +182,18 @@ def fetch_controller_config():
 def update_config_loop():
     global target_country, last_switch_trigger, PROXY_PORT, tun_main, tun_backup, last_config_log, REALTIME_URL, realtime_channel
     while True:
+        config_wakeup.clear()
+        while realtime_channel and realtime_channel.enabled and not realtime_channel.connected:
+            grace_remaining = 30 - (time.time() - (realtime_channel.last_disconnected or realtime_channel.started_at))
+            if grace_remaining <= 0:
+                break
+            config_wakeup.wait(timeout=grace_remaining)
+            config_wakeup.clear()
         try:
             check_for_updates()
             data = fetch_controller_config()
             if not data:
-                config_wakeup.wait(timeout=300); config_wakeup.clear()
+                config_wakeup.wait(timeout=300)
                 continue
             desired_country = str(data.get("0") or data.get("country") or "JP").upper()
             new_realtime_url = data.get("realtime_url") or ""
@@ -246,8 +254,7 @@ def update_config_loop():
             print(f"[cfg] 拉取配置失败: {e}", flush=True)
             if realtime_channel and realtime_channel.connected:
                 realtime_channel.send({"success": False, "error": str(e)[:500], "applied_at": int(time.time() * 1000)}, "config.result")
-        config_wakeup.wait(timeout=300)
-        config_wakeup.clear()
+        config_wakeup.wait(timeout=REALTIME_HTTP_INTERVAL if realtime_channel and realtime_channel.connected else 300)
 
 def c2_heartbeat_loop():
     global public_ip, PROXY_PORT, tun_main, tun_backup, last_http_report
@@ -270,15 +277,17 @@ def c2_heartbeat_loop():
         status = {"ip": VPS_IP, "socks_ip": public_ip, "details": details, "logs": get_recent_logs()}
         websocket_sent = realtime_channel.send(status) if realtime_channel and realtime_channel.connected else False
         try:
-            fallback_ready = not realtime_channel or not realtime_channel.enabled or (realtime_channel.ever_connected and time.time() - realtime_channel.last_disconnected >= 30) or (not realtime_channel.ever_connected and time.time() - realtime_channel.started_at >= 30)
-            if (websocket_sent and time.time() - last_http_report >= 300) or (not websocket_sent and fallback_ready):
+            fallback_ready = not realtime_channel or not realtime_channel.enabled or time.time() - (realtime_channel.last_disconnected or realtime_channel.started_at) >= 30
+            if realtime_channel and realtime_channel.enabled and not websocket_sent and time.time() - realtime_channel.last_disconnected < 30:
+                fallback_ready = False
+            if (websocket_sent and time.time() - last_http_report >= REALTIME_HTTP_INTERVAL) or (not websocket_sent and fallback_ready):
                 req = urllib.request.Request(f"{C2_URL}{C2_API_PREFIX}/report", data=json.dumps(status).encode('utf-8'), headers=get_c2_headers(), method='POST')
                 with urllib.request.urlopen(req, timeout=10) as response: response.read(1)
                 last_http_report = time.time()
         except Exception as error:
             print(f"[c2] 状态上报失败: {error}", flush=True)
         if realtime_channel and realtime_channel.connected:
-            interval = 15
+            interval = 30
         elif realtime_channel and realtime_channel.enabled and not realtime_channel.ever_connected and time.time() - realtime_channel.started_at < 30:
             interval = max(1, 30 - (time.time() - realtime_channel.started_at))
         elif realtime_channel and realtime_channel.ever_connected and time.time() - realtime_channel.last_disconnected < 30:
@@ -642,15 +651,6 @@ def main():
     
     proxy_server.ACTIVE_BIND = tun_main.name
     
-    try:
-        data = fetch_controller_config()
-        if data:
-            PROXY_PORT = int(data.get("port", 7920))
-            target_country = str(data.get("0") or data.get("country") or "JP").upper()
-            last_switch_trigger = int(data.get("switch_trigger", 0))
-            REALTIME_URL = data.get("realtime_url") or REALTIME_URL
-    except: pass
-
     print("========================================", flush=True)
 
     realtime_channel = create_realtime_channel()
