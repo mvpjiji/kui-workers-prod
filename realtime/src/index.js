@@ -137,6 +137,7 @@ export class VpsPresence extends DurableObject {
     this.ctx = ctx;
     this.env = env;
     this.snapshot = { ip: "", core: null, proxy: null, updated_at: 0 };
+    this.dashboardActive = false;
     this.dashboardActiveUntil = 0;
     this.lastPersisted = 0;
     try { ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong")); } catch {}
@@ -167,7 +168,8 @@ export class VpsPresence extends DurableObject {
       try {
         const activeResponse = await hub.fetch(new Request("https://hub.internal/active"));
         const active = activeResponse.ok ? await activeResponse.json() : null;
-        this.dashboardActiveUntil = active?.active ? Number(active.until) || 0 : 0;
+        this.dashboardActive = active?.active === true;
+        this.dashboardActiveUntil = Number(active?.until) || Date.now() + 300000;
       } catch {}
       this.snapshot.ip = ip;
       this.snapshot[`${role}_connected`] = true;
@@ -183,7 +185,8 @@ export class VpsPresence extends DurableObject {
       return json({ success: true });
     }
     if (url.pathname === "/dashboard-active" && request.method === "POST") {
-      this.dashboardActiveUntil = request.headers.get("X-KUI-Active") === "1" ? Number(request.headers.get("X-KUI-Until")) || Date.now() + 300000 : 0;
+      this.dashboardActive = request.headers.get("X-KUI-Active") === "1";
+      this.dashboardActiveUntil = Number(request.headers.get("X-KUI-Until")) || Date.now() + 300000;
       return json({ success: true });
     }
     if (url.pathname === "/snapshot") return json(this.publicSnapshot());
@@ -299,10 +302,15 @@ export class VpsPresence extends DurableObject {
       try {
         const response = await hub.fetch(new Request("https://hub.internal/active"));
         const active = response.ok ? await response.json() : null;
-        if (!active?.active) return;
-        this.dashboardActiveUntil = Number(active.until) || Date.now() + 300000;
-      } catch { return; }
+        this.dashboardActive = active?.active === true;
+        this.dashboardActiveUntil = Number(active?.until) || Date.now() + 300000;
+      } catch {
+        this.dashboardActive = false;
+        this.dashboardActiveUntil = Date.now() + 300000;
+        return;
+      }
     }
+    if (!this.dashboardActive) return;
     await hub.fetch(new Request("https://hub.internal/update", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-KUI-Presence": "1" },
