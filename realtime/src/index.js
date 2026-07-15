@@ -31,10 +31,13 @@ function json(data, status = 200, extraHeaders = {}) {
   });
 }
 
+function pagesOrigins(env) {
+  return String(env.PAGES_ORIGIN || "https://k-ui2.pages.dev").split(",").map(origin => origin.trim().replace(/\/$/, "")).filter(origin => /^https:\/\//.test(origin));
+}
+
 function cors(request, env) {
   const requested = request.headers.get("Origin") || "";
-  const allowed = env.PAGES_ORIGIN || "https://k-ui2.pages.dev";
-  const origin = requested === allowed ? allowed : "null";
+  const origin = pagesOrigins(env).includes(requested) ? requested : "null";
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
@@ -69,14 +72,16 @@ function compactRoleState(role, data) {
 
 async function verifyAdmin(header, env) {
   try {
-    if (!header || !env.PAGES_ORIGIN) return false;
-    const response = await fetch(`${env.PAGES_ORIGIN.replace(/\/$/, "")}/api/realtime_auth`, {
-      method: "POST",
-      headers: { Authorization: header, "Content-Type": "application/json" },
-      body: "{}",
-    });
-    if (!response.ok) return false;
-    return (await response.json()).admin === true;
+    if (!header) return false;
+    for (const origin of pagesOrigins(env)) {
+      const response = await fetch(`${origin}/api/realtime_auth`, {
+        method: "POST",
+        headers: { Authorization: header, "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (response.ok && (await response.json()).admin === true) return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -119,14 +124,14 @@ export default {
 
     if (url.pathname === "/dashboard/ws") {
       if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return json({ error: "WebSocket required" }, 426);
-      if (request.headers.get("Origin") !== (env.PAGES_ORIGIN || "https://k-ui2.pages.dev")) return json({ error: "Forbidden origin" }, 403);
+      if (!pagesOrigins(env).includes(request.headers.get("Origin") || "")) return json({ error: "Forbidden origin" }, 403);
       const hub = env.DASHBOARD_HUB.get(env.DASHBOARD_HUB.idFromName("main"));
       return hub.fetch(doRequest(`/ws?ticket=${encodeURIComponent(url.searchParams.get("ticket") || "")}`, request));
     }
 
     if (url.pathname === "/public/ws") {
       if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return json({ error: "WebSocket required" }, 426);
-      if (request.headers.get("Origin") !== (env.PAGES_ORIGIN || "https://k-ui2.pages.dev")) return json({ error: "Forbidden origin" }, 403);
+      if (!pagesOrigins(env).includes(request.headers.get("Origin") || "")) return json({ error: "Forbidden origin" }, 403);
       const setting = await env.DB.prepare("SELECT value FROM probe_settings WHERE key = 'is_public'").first();
       if (setting && setting.value !== "true") return json({ error: "Private dashboard" }, 403);
       const hub = env.DASHBOARD_HUB.get(env.DASHBOARD_HUB.idFromName("main"));

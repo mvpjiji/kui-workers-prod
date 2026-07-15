@@ -5,7 +5,7 @@
   "compatibility_date": "2026-07-12",
   "workers_dev": true,
   "vars": {
-    "PAGES_ORIGIN": "https://k-ui2.pages.dev"
+    "PAGES_ORIGIN": "https://k-ui2.pages.dev,https://k-ui-5gr.pages.dev"
   },
   "d1_databases": [
     {
