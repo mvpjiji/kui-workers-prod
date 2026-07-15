@@ -4,6 +4,10 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-07-16",
   "workers_dev": true,
+  "vars": {
+    "ADMIN_USERNAME": "admin",
+    "ADMIN_PASSWORD": "admin"
+  },
   "assets": {
     "directory": ".",
     "binding": "ASSETS",
@@ -17,6 +21,18 @@
   "triggers": {
     "crons": ["*/5 * * * *"]
   },
+  "durable_objects": {
+    "bindings": [
+      { "name": "VPS_PRESENCE", "class_name": "VpsPresence" },
+      { "name": "DASHBOARD_HUB", "class_name": "DashboardHub" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["VpsPresence", "DashboardHub"]
+    }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 0.1
