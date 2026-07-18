@@ -258,27 +258,43 @@ def _verify_warp_exit(mode):
     global _warp_exit_ip
     if mode == "off": return True
     checks = []
-    if mode in {"ipv4", "dual"}: checks.append(("4", "http://1.1.1.1/cdn-cgi/trace"))
-    if mode in {"ipv6", "dual"}: checks.append(("6", "http://[2606:4700:4700::1111]/cdn-cgi/trace"))
-    for family, url in checks:
+    if mode in {"ipv4", "dual"}:
+        checks.append(("IPv4", "https://1.1.1.1/cdn-cgi/trace", ["-4", "-k"]))
+    if mode in {"ipv6", "dual"}:
+        # The local check inbound only listens on IPv4. Do not pass curl -6:
+        # it would try to reach 127.0.0.1 through IPv6 before SOCKS can route
+        # the literal IPv6 destination through WARP.
+        checks.append(("IPv6", "https://[2606:4700:4700::1111]/cdn-cgi/trace", ["-k"]))
+    for family, url, extra_args in checks:
         verified = False
         for _ in range(4):
-            result = subprocess.run(["curl", "-fsSL", "--connect-timeout", "5", "--max-time", "12", "--proxy", "socks5://127.0.0.1:39482", url], capture_output=True, text=True)
+            result = subprocess.run(["curl", "-fsSL", "--connect-timeout", "5", "--max-time", "20", "--proxy", "socks5://127.0.0.1:39482", *extra_args, url], capture_output=True, text=True)
             if result.returncode == 0 and "warp=on" in result.stdout.lower():
                 trace = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
                 ip = trace.get("ip", "")
                 if ip: _warp_exit_ip = ip
                 verified = True; break
             time.sleep(2)
-        if not verified: raise RuntimeError(f"WARP {family[1:]} data-plane verification failed")
+        if not verified: raise RuntimeError(f"WARP {family} data-plane verification failed")
     return True
 
 _residential_exit_ip = ""
 
-def _verify_residential_exit():
+def _verify_residential_exit(proxy):
     global _residential_exit_ip
+    host = str(proxy.get("addr") or "127.0.0.1")
+    try:
+        port = int(proxy.get("port") or PROXY_PORT)
+    except (TypeError, ValueError):
+        port = PROXY_PORT
+    if not 1 <= port <= 65535:
+        raise RuntimeError("invalid residential proxy port")
+    user = str(proxy.get("user") or "")
+    password = str(proxy.get("pass") or "")
+    auth = f"{urllib.parse.quote(user, safe='')}:{urllib.parse.quote(password, safe='')}@" if user or password else ""
+    proxy_url = f"socks5h://{auth}{host}:{port}"
     for _ in range(4):
-        result = subprocess.run(["curl", "-4", "-fsSL", "--connect-timeout", "5", "--max-time", "15", "--proxy", "socks5h://127.0.0.1:39482", "https://api.ipify.org"], capture_output=True, text=True)
+        result = subprocess.run(["curl", "-4", "-fsSL", "--connect-timeout", "5", "--max-time", "15", "--proxy", proxy_url, "https://api.ipify.org"], capture_output=True, text=True)
         ip = result.stdout.strip()
         if result.returncode == 0 and re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", ip) and ip != VPS_IP:
             _residential_exit_ip = ip
@@ -295,6 +311,8 @@ def _post_warp_result(payload):
 
 def check_for_update():
     global last_update_check
+    if os.environ.get("KUI_DISABLE_AUTO_UPDATE") == "1":
+        return False
     now = time.time()
     if now - last_update_check < 3600:
         return False
@@ -360,7 +378,9 @@ config_wakeup = threading.Event()
 heartbeat_wakeup = threading.Event()
 realtime_channel = None
 last_http_report = 0
-REALTIME_HTTP_INTERVAL = 900
+# Keep D1's fallback snapshot fresh for dashboard reloads and reconnects.
+# WebSocket remains the primary five-second live channel.
+REALTIME_HTTP_INTERVAL = 30
 
 # 🌟 增加全局 Ping 状态缓存锁，防止在非测速轮次上传 '0' 导致前端图表归零
 last_pings = {"ct": "0", "cu": "0", "cm": "0", "bd": "0"}
@@ -593,9 +613,16 @@ def get_system_status(current_interval):
 
     rx_now, tx_now = get_net_dev_bytes()
     stats["net_rx"] = str(rx_now); stats["net_tx"] = str(tx_now)
-    # 动态除数计算实时网速
-    if prev_rx > 0: stats["net_in_speed"] = (rx_now - prev_rx) / current_interval
-    if prev_tx > 0: stats["net_out_speed"] = (tx_now - prev_tx) / current_interval
+    # Measure elapsed wall time instead of the requested heartbeat interval.
+    # The latter changes with dashboard activity and was leaving stale zero
+    # speeds after reconfiguration or a failed HTTP fallback report.
+    now = time.monotonic()
+    previous_sample_at = getattr(get_system_status, "previous_sample_at", 0.0)
+    elapsed = now - previous_sample_at if previous_sample_at else 0.0
+    if elapsed > 0:
+        stats["net_in_speed"] = max(0, rx_now - prev_rx) / elapsed
+        stats["net_out_speed"] = max(0, tx_now - prev_tx) / elapsed
+    get_system_status.previous_sample_at = now
     prev_rx, prev_tx = rx_now, tx_now
 
     # 🌟 每间隔几次循环更新一次真实的 Ping 值缓存
@@ -1041,7 +1068,7 @@ def build_singbox_config(nodes, proxy_cfg=None, peers=None, mesh=None, socks5_ou
     else:
         subprocess.run(["systemctl", "start", "sing-box"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         if not _singbox_service_healthy(): raise RuntimeError("sing-box is not healthy after start")
-    if socks5_outbound and socks5_outbound.get("source") == "residential": _verify_residential_exit()
+    if socks5_outbound and socks5_outbound.get("source") == "residential": _verify_residential_exit(socks5_outbound)
     if warp_mode != "off": _verify_warp_exit(warp_mode)
     for filename in os.listdir("/opt/kui/"):
         if (filename.startswith("cert_") or filename.startswith("key_")) and filename.endswith(".pem") and filename not in active_certs:
@@ -1094,7 +1121,7 @@ def report_status(current_nodes, argo_urls, force_http=False, allow_http=True):
             pending_report_payload["node_traffic"] = list(pending_node_traffic or [])
             _write_json_state(TRAFFIC_STATE_PATH, {"last_reported_bytes": last_reported_bytes, "pending": {"report_id": pending_report_id, "report_bytes": pending_report_bytes, "node_traffic": pending_node_traffic, "payload": pending_report_payload}})
         req = urllib.request.Request(REPORT_URL, data=json.dumps(pending_report_payload).encode(), headers=HEADERS)
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=20) as response:
             resp_data = json.loads(response.read().decode('utf-8'))
         last_reported_bytes = pending_report_bytes
         pending_report_id = None
