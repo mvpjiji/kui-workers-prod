@@ -4,6 +4,9 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-07-15",
   "workers_dev": true,
+  "routes": [
+    { "pattern": "kui.zombiesvps.ccwu.cc", "custom_domain": true }
+  ],
   "vars": {
     "ADMIN_USERNAME": "admin",
     "ADMIN_PASSWORD": "Woohyuk514",
@@ -17,7 +20,7 @@
   },
   "d1_databases": [
     {
-      "binding": "DB","database_id": "794aa586-d4b5-4ebf-8e6a-b2d1d88b96dc","database_name": "kui-workers-prod"
+      "binding": "DB","database_id": "f9d66c1e-9187-45fb-ad96-d5a29d2e94d3","database_name": "kui-workers-prod"
     }
   ],
   "triggers": {
